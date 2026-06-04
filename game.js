@@ -11,6 +11,8 @@ if (!kartCanvas) {
     alert('Error: kart-canvas element not found!');
 } else {
     console.log('kart-canvas found:', kartCanvas);
+    kartCanvas.style.background = 'transparent';
+    kartCanvas.style.border = 'none';
 }
 
 // Check if Three.js is loaded
@@ -30,13 +32,13 @@ if (typeof THREE.GLTFLoader === 'undefined') {
 }
 
 const kartRenderer = new THREE.WebGLRenderer({ canvas: kartCanvas, alpha: true, antialias: true });
-kartRenderer.setSize(200, 200);
+kartRenderer.setSize(240, 240); // Aumentado de 200 a 240
 kartRenderer.setPixelRatio(window.devicePixelRatio);
 kartRenderer.setClearColor(0x000000, 0); // Transparent background
 
 const kartScene = new THREE.Scene();
 const kartCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
-kartCamera.position.set(0, 1.5, 4);
+kartCamera.position.set(0, 1.6, 3.8); // Ajustado para una cámara más baja y cercana
 kartCamera.lookAt(0, 0, 0);
 
 // Lighting first (before adding objects)
@@ -50,6 +52,9 @@ kartScene.add(directionalLight);
 const pointLight = new THREE.PointLight(0xff00ff, 1, 10);
 pointLight.position.set(-2, 1, 2);
 kartScene.add(pointLight);
+
+let kartModel = null;
+let kartLoaded = false;
 
 // Add a simple test cube to verify Three.js is working
 const testGeometry = new THREE.BoxGeometry(1, 0.5, 1.5);
@@ -68,12 +73,9 @@ setTimeout(() => {
     console.log('Test render completed');
 }, 100);
 
-let kartModel = testCube; // Start with test cube
-let kartLoaded = true; // Mark as loaded since we have the test cube
-
 // Load the 3D kart model (will replace the test cube)
 const loader = new THREE.GLTFLoader();
-loader.load('racing_kart_125cc_low_poly (1).glb', function(gltf) {
+loader.load('kart.glb', function(gltf) {
     // Remove test cube
     kartScene.remove(testCube);
     
@@ -86,7 +88,7 @@ loader.load('racing_kart_125cc_low_poly (1).glb', function(gltf) {
     const scale = 2 / maxDim;
     kartModel.scale.set(scale, scale, scale);
     
-    kartModel.position.y = -0.3;
+    kartModel.position.y = -0.65; // Bajado de -0.3 a -0.65 para colocar las ruedas en el piso
     kartModel.rotation.y = Math.PI;
     
     // Enable shadows and ensure materials are visible
@@ -114,6 +116,75 @@ loader.load('racing_kart_125cc_low_poly (1).glb', function(gltf) {
     console.log('Keeping test cube as fallback');
 });
 
+// Offscreen rendering for 3D obstacles
+const offscreenCanvas = document.createElement('canvas');
+offscreenCanvas.width = 128;
+offscreenCanvas.height = 128;
+const offscreenRenderer = new THREE.WebGLRenderer({ canvas: offscreenCanvas, alpha: true, antialias: true });
+offscreenRenderer.setSize(128, 128);
+offscreenRenderer.setClearColor(0x000000, 0);
+
+const offscreenScene = new THREE.Scene();
+const offscreenCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+offscreenCamera.position.set(0, 1.2, 3);
+offscreenCamera.lookAt(0, 0, 0);
+
+const offscreenAmbientLight = new THREE.AmbientLight(0xffffff, 1.5);
+offscreenScene.add(offscreenAmbientLight);
+
+const offscreenDirLight = new THREE.DirectionalLight(0x00ffff, 2.0);
+offscreenDirLight.position.set(5, 5, 5);
+offscreenScene.add(offscreenDirLight);
+
+const offscreenPointLight = new THREE.PointLight(0xff00ff, 2.0, 10);
+offscreenPointLight.position.set(-2, 1, 2);
+offscreenScene.add(offscreenPointLight);
+
+let eyeballModel = null;
+let toothModel = null;
+
+function prepareModel(gltfScene, scaleMultiplier = 1.8) {
+    const model = gltfScene;
+    const box = new THREE.Box3().setFromObject(model);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    
+    model.position.sub(center);
+    
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const scale = scaleMultiplier / maxDim;
+    model.scale.set(scale, scale, scale);
+    
+    const group = new THREE.Group();
+    group.add(model);
+    
+    group.traverse((child) => {
+        if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            if (child.material) {
+                child.material.side = THREE.DoubleSide;
+            }
+        }
+    });
+    
+    return group;
+}
+
+loader.load('eyeball.glb', function(gltf) {
+    eyeballModel = prepareModel(gltf.scene, 1.6);
+    console.log('Eyeball model loaded successfully');
+}, undefined, function(error) {
+    console.error('Error loading eyeball model:', error);
+});
+
+loader.load('tooth.glb', function(gltf) {
+    toothModel = prepareModel(gltf.scene, 1.5);
+    console.log('Tooth model loaded successfully');
+}, undefined, function(error) {
+    console.error('Error loading tooth model:', error);
+});
+
 // Configuración
 const roadWidth = 2000;
 const segmentLength = 200;
@@ -125,14 +196,16 @@ let segments = [];
 let playerX = 0;
 let position = 0;
 let speed = 0;
-let maxSpeed = 400; // Velocidad que aumenta poco a poco
-let accel = 2;
-let breaking = -5;
-let decel = -1;
-let offRoadDecel = -10;
+let maxSpeed = 500; // Velocidad máxima inicial aumentada
+let accel = 4; // Aceleración aumentada de 2 a 4
+let breaking = -8; // Frenado aumentado para compensar la velocidad
+let decel = -2;
+let offRoadDecel = -15; // Mayor frenado fuera de pista
 let gameActive = false;
 let score = 0;
 let highScore = localStorage.getItem('nightdriver_highscore') || 0;
+let lives = 3; // Sistema de 3 vidas
+let invincibilityTime = 0; // Segundos de invencibilidad en fotogramas
 
 const keys = {};
 document.addEventListener('keydown', e => keys[e.code] = true);
@@ -179,17 +252,27 @@ function project(p, cameraX, cameraY, cameraZ) {
     p.screen.scale = scale;
 }
 
+function updateLivesUI() {
+    const livesDiv = document.getElementById('lives');
+    if (livesDiv) {
+        livesDiv.innerText = `VIDAS: ${'❤️'.repeat(lives)}`;
+    }
+}
+
 function initGame() {
     position = 0;
     speed = 0;
     playerX = 0;
     score = 0;
+    lives = 3;
+    invincibilityTime = 0;
     gameActive = true;
-    maxSpeed = 300; // Resetear dificultad
+    maxSpeed = 500; // Reiniciar velocidad máxima inicial a 500 (antes 300)
     resetTrack();
     
-    // Actualizar High Score visual
+    // Actualizar High Score y Vidas en la interfaz
     document.getElementById('highscore').innerText = `HIGH SCORE: ${Math.floor(highScore).toString().padStart(4, '0')}`;
+    updateLivesUI();
 }
 
 function endGame() {
@@ -217,11 +300,11 @@ function update(dt) {
     else speed += decel;
 
     // Aumentar la velocidad máxima poco a poco (dificultad progresiva)
-    maxSpeed += 0.05;
+    maxSpeed += 0.1; // Progresión de velocidad más rápida (de 0.05 a 0.1)
 
-    // Manejo de giro
-    if (keys['ArrowLeft']) playerX -= 0.05 * (speed / maxSpeed);
-    if (keys['ArrowRight']) playerX += 0.05 * (speed / maxSpeed);
+    // Manejo de giro (aumentada la respuesta del kart para compensar la velocidad)
+    if (keys['ArrowLeft']) playerX -= 0.06 * (speed / maxSpeed);
+    if (keys['ArrowRight']) playerX += 0.06 * (speed / maxSpeed);
 
     // Salirse de la carretera te frena mucho
     if (Math.abs(playerX) > 1) {
@@ -241,12 +324,30 @@ function update(dt) {
     const currentSegment = segments[currentSegmentIndex];
     playerX -= (speed / maxSpeed) * currentSegment.curve * 0.01;
 
-    // Detección de Colisión con Obstáculos
-    if (currentSegment.obstacle !== null) {
-        // Si el coche está en el mismo segmento y cerca del obstáculo (X)
-        const distanceToObstacle = Math.abs(playerX - currentSegment.obstacle);
-        if (distanceToObstacle < 0.3) { // 0.3 es el "ancho" de la colisión
-            endGame();
+    // Disminuir tiempo de invencibilidad
+    if (invincibilityTime > 0) {
+        invincibilityTime--;
+    }
+
+    // Detección de Colisión con Obstáculos (calculado 12 segmentos por delante, donde se renderiza visualmente el kart)
+    const collisionSegmentIndex = (Math.floor(position / segmentLength) + 12) % totalTrackLength;
+    const collisionSegment = segments[collisionSegmentIndex];
+    if (collisionSegment.obstacle !== null) {
+        // Si el coche está en el segmento del obstáculo y cerca de él (X)
+        const distanceToObstacle = Math.abs(playerX - collisionSegment.obstacle);
+        if (distanceToObstacle < 0.25) { // Hitbox a 0.25 para mayor precisión
+            if (invincibilityTime <= 0) {
+                if (lives > 1) {
+                    lives--;
+                    invincibilityTime = 120; // 2 segundos de invencibilidad a 60 fps
+                    speed = speed * 0.3; // Freno del vehículo por impacto
+                    updateLivesUI();
+                } else {
+                    lives = 0;
+                    updateLivesUI();
+                    endGame();
+                }
+            }
         }
     }
 
@@ -326,14 +427,45 @@ function draw() {
             const p1 = segment.p1.screen;
             // Calcular posición X del obstáculo en pantalla
             const obsX = p1.x + (segment.obstacle * p1.w);
-            const obsW = p1.w * 0.2; // Ancho del obstáculo
-            const obsH = p1.w * 0.2; // Alto del obstáculo
+            const obsW = p1.w * 0.25; // Ancho del obstáculo
+            const obsH = p1.w * 0.25; // Alto del obstáculo
             
-            ctx.fillStyle = '#ff0055'; // Color del obstáculo
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = '#ff0055';
-            ctx.fillRect(obsX - obsW / 2, p1.y - obsH, obsW, obsH);
-            ctx.shadowBlur = 0;
+            const useEyeball = (segment.index % 2 === 0);
+            const model = useEyeball ? eyeballModel : toothModel;
+            
+            if (model) {
+                // Clear previous meshes from offscreen scene
+                offscreenScene.children = offscreenScene.children.filter(c => 
+                    c === offscreenAmbientLight || c === offscreenDirLight || c === offscreenPointLight
+                );
+                
+                // Add model to scene
+                offscreenScene.add(model);
+                
+                // Animate rotation (spinning + floating)
+                const time = Date.now() * 0.001;
+                model.rotation.y = time * 2;
+                if (useEyeball) {
+                    model.rotation.x = Math.sin(time * 3) * 0.2;
+                    model.rotation.z = Math.cos(time * 2) * 0.1;
+                } else {
+                    model.rotation.x = Math.cos(time * 3) * 0.2;
+                    model.rotation.z = Math.sin(time * 2) * 0.1;
+                }
+                
+                // Render offscreen
+                offscreenRenderer.render(offscreenScene, offscreenCamera);
+                
+                // Draw onto main canvas
+                ctx.drawImage(offscreenCanvas, obsX - obsW / 2, p1.y - obsH, obsW, obsH);
+            } else {
+                // Fallback a rectángulos neón de color si aún se están cargando los modelos
+                ctx.fillStyle = useEyeball ? '#ff00ff' : '#00ffff';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = ctx.fillStyle;
+                ctx.fillRect(obsX - obsW / 2, p1.y - obsH, obsW, obsH);
+                ctx.shadowBlur = 0;
+            }
         }
     }
 
@@ -342,6 +474,11 @@ function draw() {
 }
 
 function drawPlayer(x, y) {
+    // Parpadeo visual durante invencibilidad
+    if (invincibilityTime > 0 && Math.floor(Date.now() / 100) % 2 === 0) {
+        return;
+    }
+
     // Render 3D kart model instead of 2D sprite
     if (kartLoaded && kartModel) {
         // Get current segment for curve info
