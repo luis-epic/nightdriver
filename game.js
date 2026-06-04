@@ -4,6 +4,116 @@ const ctx = canvas.getContext('2d');
 canvas.width = 640;
 canvas.height = 480;
 
+// Three.js setup for 3D kart
+const kartCanvas = document.getElementById('kart-canvas');
+if (!kartCanvas) {
+    console.error('kart-canvas element not found!');
+    alert('Error: kart-canvas element not found!');
+} else {
+    console.log('kart-canvas found:', kartCanvas);
+}
+
+// Check if Three.js is loaded
+if (typeof THREE === 'undefined') {
+    console.error('Three.js is not loaded!');
+    alert('Error: Three.js is not loaded!');
+} else {
+    console.log('Three.js is loaded:', THREE);
+}
+
+// Check if GLTFLoader is loaded
+if (typeof THREE.GLTFLoader === 'undefined') {
+    console.error('GLTFLoader is not loaded!');
+    alert('Error: GLTFLoader is not loaded!');
+} else {
+    console.log('GLTFLoader is loaded');
+}
+
+const kartRenderer = new THREE.WebGLRenderer({ canvas: kartCanvas, alpha: true, antialias: true });
+kartRenderer.setSize(200, 200);
+kartRenderer.setPixelRatio(window.devicePixelRatio);
+kartRenderer.setClearColor(0x000000, 0); // Transparent background
+
+const kartScene = new THREE.Scene();
+const kartCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+kartCamera.position.set(0, 1.5, 4);
+kartCamera.lookAt(0, 0, 0);
+
+// Lighting first (before adding objects)
+const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+kartScene.add(ambientLight);
+
+const directionalLight = new THREE.DirectionalLight(0x00ffff, 2.0);
+directionalLight.position.set(5, 10, 5);
+kartScene.add(directionalLight);
+
+const pointLight = new THREE.PointLight(0xff00ff, 1, 10);
+pointLight.position.set(-2, 1, 2);
+kartScene.add(pointLight);
+
+// Add a simple test cube to verify Three.js is working
+const testGeometry = new THREE.BoxGeometry(1, 0.5, 1.5);
+const testMaterial = new THREE.MeshPhongMaterial({ color: 0xff00ff, side: THREE.DoubleSide });
+const testCube = new THREE.Mesh(testGeometry, testMaterial);
+testCube.position.y = 0;
+testCube.rotation.y = Math.PI;
+kartScene.add(testCube);
+kartModel = testCube;
+kartLoaded = true;
+console.log('Test cube added as fallback');
+
+// Render once to test
+setTimeout(() => {
+    kartRenderer.render(kartScene, kartCamera);
+    console.log('Test render completed');
+}, 100);
+
+let kartModel = testCube; // Start with test cube
+let kartLoaded = true; // Mark as loaded since we have the test cube
+
+// Load the 3D kart model (will replace the test cube)
+const loader = new THREE.GLTFLoader();
+loader.load('racing_kart_125cc_low_poly (1).glb', function(gltf) {
+    // Remove test cube
+    kartScene.remove(testCube);
+    
+    kartModel = gltf.scene;
+    
+    // Auto-scale model to fit
+    const box = new THREE.Box3().setFromObject(kartModel);
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const scale = 2 / maxDim;
+    kartModel.scale.set(scale, scale, scale);
+    
+    kartModel.position.y = -0.3;
+    kartModel.rotation.y = Math.PI;
+    
+    // Enable shadows and ensure materials are visible
+    kartModel.traverse((child) => {
+        if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            if (child.material) {
+                child.material.side = THREE.DoubleSide;
+                // Ensure material is visible
+                if (child.material.color) {
+                    child.material.color.setHex(0xffffff);
+                }
+            }
+        }
+    });
+    
+    kartScene.add(kartModel);
+    kartLoaded = true;
+    console.log('Kart model loaded successfully, scale:', scale);
+}, function(progress) {
+    console.log('Loading progress:', (progress.loaded / progress.total * 100) + '%');
+}, function(error) {
+    console.error('Error loading kart model:', error);
+    console.log('Keeping test cube as fallback');
+});
+
 // Configuración
 const roadWidth = 2000;
 const segmentLength = 200;
@@ -182,22 +292,51 @@ function draw() {
 }
 
 function drawPlayer(x, y) {
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = "#0ff";
-    ctx.fillStyle = "#fff";
-    ctx.beginPath();
-    ctx.moveTo(x - 30, y);
-    ctx.lineTo(x + 30, y);
-    ctx.lineTo(x + 20, y - 40);
-    ctx.lineTo(x - 20, y - 40);
-    ctx.fill();
-    
-    // Luces traseras
-    ctx.shadowColor = "#f0f";
-    ctx.fillStyle = "#f0f";
-    ctx.fillRect(x - 25, y - 10, 15, 5);
-    ctx.fillRect(x + 10, y - 10, 15, 5);
-    ctx.shadowBlur = 0;
+    // Render 3D kart model instead of 2D sprite
+    if (kartLoaded && kartModel) {
+        // Get current segment for curve info
+        const currentSegment = segments[Math.floor(position / segmentLength) % segments.length];
+        
+        // Calculate rotation based on player movement
+        const targetRotationZ = -playerX * 0.5; // Lean when turning
+        const targetRotationY = -playerX * 0.3; // Turn direction
+        
+        // Calculate tilt based on road curve
+        const targetTilt = currentSegment.curve * 0.02;
+        
+        // Smooth interpolation
+        kartModel.rotation.z += (targetRotationZ - kartModel.rotation.z) * 0.1;
+        kartModel.rotation.y = Math.PI + targetRotationY;
+        kartModel.rotation.x = targetTilt;
+        
+        // Render the 3D kart
+        kartRenderer.render(kartScene, kartCamera);
+    } else {
+        // Fallback to 2D sprite if model not loaded
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = "#0ff";
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.moveTo(x - 30, y);
+        ctx.lineTo(x + 30, y);
+        ctx.lineTo(x + 20, y - 40);
+        ctx.lineTo(x - 20, y - 40);
+        ctx.fill();
+        
+        // Luces traseras
+        ctx.shadowColor = "#f0f";
+        ctx.fillStyle = "#f0f";
+        ctx.fillRect(x - 25, y - 10, 15, 5);
+        ctx.fillRect(x + 10, y - 10, 15, 5);
+        ctx.shadowBlur = 0;
+        
+        // Debug: show loading status
+        if (!kartLoaded) {
+            ctx.fillStyle = "#ff0";
+            ctx.font = "12px Courier New";
+            ctx.fillText("Cargando modelo 3D...", x - 60, y - 50);
+        }
+    }
 }
 
 function gameLoop() {

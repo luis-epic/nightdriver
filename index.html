@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NIGHT DRIVER | NEON OVERDRIVE</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script>
+        // Wait for Three.js to load before loading game.js
+        window.addEventListener('load', function() {
+            console.log('Window loaded, Three.js version:', THREE.REVISION);
+        });
+    </script>
     <style>
         body { margin: 0; padding: 0; background: #000; color: #0ff; font-family: 'Courier New', monospace; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
         #game-container { position: relative; width: 640px; height: 480px; border: 4px solid #0ff; box-shadow: 0 0 30px #0ff; }
@@ -14,12 +22,14 @@
         .btn:hover { background: #0ff; color: #000; box-shadow: 0 0 20px #0ff; }
         #stats { position: absolute; top: 10px; left: 10px; text-align: left; pointer-events: none; z-index: 5; }
         .hidden { display: none !important; }
+        #kart-canvas { position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%); width: 200px; height: 200px; pointer-events: none; z-index: 3; background: #ff00ff; border: 3px solid #fff; }
         #msg { font-size: 1.5rem; color: #f0f; margin-bottom: 20px; }
     </style>
 </head>
 <body>
     <div id="game-container">
         <canvas id="gameCanvas"></canvas>
+        <canvas id="kart-canvas"></canvas>
         
         <!-- Pantalla Inicial -->
         <div id="start-screen" class="overlay">
